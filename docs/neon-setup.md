@@ -103,10 +103,24 @@ On the **New Project** screen (importing `Bright-Anyawe/SpendWise`):
 
 **Trusted domains.** In Neon → **Auth** → settings, add every address the app is served from, with the scheme and no trailing slash:
 
-- `https://spendwise-auto.vercel.app` (or your custom domain)
+- `https://spendwiseauto.vercel.app` (or your custom domain)
 - any preview URLs you want sign-in to work on
 
-Password-reset links only return to trusted domains.
+Password-reset links only return to trusted domains. Until the live address is added, sign-up and sign-in there fail with "Sign-in isn't available on this web address yet", and the Vercel logs show `[auth] … not a trusted domain in Neon Auth`.
+
+**Reminder scheduler.** Reminders, evening reviews and summaries are sent by the app's reminder job (`POST /api/cron/notify`). A Neon Function on the main branch calls it every 15 minutes; both the function and its schedule are declared in `neon.ts`. To deploy it, or after changing `neon.ts`:
+
+```bash
+npm run neon:deploy
+```
+
+This needs the Neon CLI signed in (`npx neon@9.3.2 auth`) and `CRON_SECRET` in `.env.local`, with the **same value as in Vercel**. If the app moves to another address, set `REMINDERS_APP_URL` in `.env.local` and deploy again. To check that runs are arriving:
+
+```bash
+npx neon@9.3.2 logs query --project-id rapid-feather-29307723 --branch main --source function --since 1h
+```
+
+Each run logs `app answered 200 {"due":…}`. A `401` means the function's `CRON_SECRET` doesn't match Vercel's.
 
 ## 7. Before real users
 
@@ -130,4 +144,5 @@ The GitHub integration in your screenshot was added from the **Optimize-tasks** 
 | Tables, constraints, triggers, RLS, calculations (`db/migrations`) | The Neon project, Neon Auth, connection strings |
 | Migration runner (`npm run db:migrate`) | Auth settings, trusted domains, custom SMTP |
 | Sign-up, sign-in, password reset, onboarding (`src/app/auth`, `src/server/actions/auth.ts`) | Vercel environment variables and build command |
-| Session handling and route protection (`src/proxy.ts`, Neon Auth middleware) | (Phase 5) VAPID keys, `CRON_SECRET`, the scheduler |
+| Session handling and route protection (`src/proxy.ts`, Neon Auth middleware) | VAPID keys and `CRON_SECRET` (Vercel) |
+| Reminder scheduler (`neon.ts`, `neon/reminders.ts`) | The Neon Function and its 15-minute trigger (`npm run neon:deploy`) |

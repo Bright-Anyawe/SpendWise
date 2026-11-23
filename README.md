@@ -12,7 +12,7 @@ The product name lives in `src/config/brand.ts`.
 | 2. UI/UX design system & mockups | Done ([docs/phase-2-design-system.md](docs/phase-2-design-system.md)) |
 | 3. Database & backend | Done, on Neon: schema, RLS, calculations, Neon Auth, server actions ([plan](docs/superpowers/plans/2026-11-19-phase-3-database-backend.md)) |
 | 4. Frontend (dashboard, quick add, transactions, budgets, reports, settings) | Done ([plan](docs/superpowers/plans/2026-11-20-phase-4-frontend.md)) |
-| 5. PWA & notifications | Done: installable app, offline add + sync, push, reminders, summaries, budget alerts ([plan](docs/superpowers/plans/2026-11-22-phase-5-pwa-notifications.md)). Reminders need a scheduler calling `POST /api/cron/notify`, set up at deploy (Phase 6). |
+| 5. PWA & notifications | Done: installable app, offline add + sync, push, reminders, summaries, budget alerts ([plan](docs/superpowers/plans/2026-11-22-phase-5-pwa-notifications.md)). Reminders run every 15 minutes from a Neon Function schedule (`neon.ts`). |
 | 6. Testing & deployment | Planned |
 
 ## Stack
@@ -37,6 +37,7 @@ Next.js 16 (App Router, Server Actions, Cache Components) · React 19 · TypeScr
 | `npm run lint` | ESLint |
 | `npm run build` | Production build |
 | `npm start` | Serves the production build (the service worker, offline mode and push only run here, not in `npm run dev`) |
+| `npm run neon:deploy` | Deploys the reminder scheduler (Neon Function + 15-minute trigger from `neon.ts`); needs the Neon CLI signed in and `CRON_SECRET` in `.env.local` |
 | `npm run notify:once` | Runs the reminder job once, like the scheduler will (uses `CRON_SECRET` from `.env.local`; pass another URL after `--`) |
 
 ## Where things live
