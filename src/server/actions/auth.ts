@@ -6,6 +6,7 @@ import { safeNextPath } from "@/lib/auth/redirect";
 import { getSiteUrl } from "@/lib/site-url";
 import { forgotPasswordSchema, resetPasswordSchema, signInSchema, signUpSchema } from "@/schemas/auth";
 import { type ActionResult, fail, formDataToObject, fromZodError, ok, pick } from "../action-result";
+import { unexpectedAuthError } from "../auth-errors";
 
 // Better Auth error codes returned by Neon Auth.
 const EMAIL_TAKEN = new Set(["USER_ALREADY_EXISTS", "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"]);
@@ -30,7 +31,7 @@ export async function signUp(_prev: ActionResult | null, formData: FormData): Pr
       return fail(message, { password: [message] }, echo);
     }
     if (code === "INVALID_EMAIL") return fail("Enter a valid email address.", { email: ["Enter a valid email address."] }, echo);
-    return fail("We couldn't create your account. Please try again.", undefined, echo);
+    return fail(unexpectedAuthError("sign-up", error, "We couldn't create your account. Please try again."), undefined, echo);
   }
 
   // With "Verify email at signup" turned on in Neon Auth there's no session until the email is confirmed.
@@ -54,7 +55,7 @@ export async function signIn(_prev: ActionResult | null, formData: FormData): Pr
     if (error.code === "INVALID_EMAIL_OR_PASSWORD") {
       return fail("That email and password don't match. Try again or reset your password.", undefined, echo);
     }
-    return fail("We couldn't sign you in right now. Please try again.", undefined, echo);
+    return fail(unexpectedAuthError("sign-in", error, "We couldn't sign you in right now. Please try again."), undefined, echo);
   }
 
   redirect(safeNextPath(raw.next));
@@ -70,10 +71,14 @@ export async function requestPasswordReset(_prev: ActionResult | null, formData:
   const parsed = forgotPasswordSchema.safeParse(raw);
   if (!parsed.success) return fromZodError(parsed.error, pick(raw, ["email"]));
 
-  await getAuth().requestPasswordReset({
+  const { error } = await getAuth().requestPasswordReset({
     email: parsed.data.email,
     redirectTo: `${getSiteUrl()}/auth/reset-password`,
   });
+  // Neon Auth answers the same for unknown emails, so an error here is about the service, not the account.
+  if (error) {
+    return fail(unexpectedAuthError("password reset", error, "We couldn't send the reset link right now. Please try again."), undefined, pick(raw, ["email"]));
+  }
 
   // Same answer whether or not the account exists, so emails can't be probed.
   return ok(undefined, "If an account uses that email, we've sent a link to reset the password. It works for 1 hour.");
@@ -89,6 +94,7 @@ export async function resetPassword(_prev: ActionResult | null, formData: FormDa
       const message = error.message || "Choose a password between 8 and 72 characters.";
       return fail(message, { password: [message] });
     }
+    if (error.code === "INVALID_ORIGIN") return fail(unexpectedAuthError("password change", error, ""));
     return fail("This reset link has expired or was already used. Request a new one.");
   }
 
