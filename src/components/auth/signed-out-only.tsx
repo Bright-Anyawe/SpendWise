@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { isNeonAuthConfigured } from "@/lib/auth/neon";
-import { getCurrentUser } from "@/server/auth";
+import { AuthUnavailableError, getCurrentUser } from "@/server/auth";
 
 /**
  * For sign-in pages (render inside <Suspense>): sends signed-in people home, and explains a
@@ -8,7 +8,11 @@ import { getCurrentUser } from "@/server/auth";
  */
 export async function SignedOutOnly() {
   // Reads the session cookies first, so this always runs per request and is never baked into the static page.
-  const user = await getCurrentUser();
+  // If Neon Auth can't be reached right now, show the form rather than failing the sign-in page.
+  const user = await getCurrentUser().catch((error: unknown) => {
+    if (error instanceof AuthUnavailableError) return null;
+    throw error;
+  });
   if (user) redirect("/");
   if (!isNeonAuthConfigured()) {
     return (

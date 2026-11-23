@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAuth, isNeonAuthConfigured } from "@/lib/auth/neon";
+import { hasSessionCookie, isLoginRedirect } from "@/lib/auth/session-check";
 
 type Middleware = ReturnType<ReturnType<typeof getAuth>["middleware"]>;
 let middleware: Middleware | undefined;
@@ -19,7 +20,13 @@ export async function proxy(request: NextRequest) {
     loginUrl: "/auth/sign-in",
     publicRoutes: ["/offline", "/api/cron", "/api/expenses/sync"],
   });
-  return middleware(request);
+  const response = await middleware(request);
+  // The middleware also sends people to sign-in when Neon Auth merely failed to answer. If this device
+  // has a session, ask once more before treating it as signed out, so a hiccup doesn't sign anyone out.
+  if (isLoginRedirect(response, request.url) && hasSessionCookie(request.headers.get("cookie"))) {
+    return middleware(request);
+  }
+  return response;
 }
 
 export const config = {

@@ -19,6 +19,7 @@ export async function signUp(_prev: ActionResult | null, formData: FormData): Pr
   if (!parsed.success) return fromZodError(parsed.error, echo);
   const { displayName, email, password } = parsed.data;
 
+  // Signing up signs the person in and remembers them (Neon Auth's default), like signIn's rememberMe below.
   const { data, error } = await getAuth().signUp.email({ email, password, name: displayName });
   if (error) {
     const code = error.code ?? "";
@@ -47,7 +48,8 @@ export async function signIn(_prev: ActionResult | null, formData: FormData): Pr
   const parsed = signInSchema.safeParse(raw);
   if (!parsed.success) return fromZodError(parsed.error, echo);
 
-  const { error } = await getAuth().signIn.email(parsed.data);
+  // rememberMe: stay signed in after closing the browser or app (renewed on each visit, 7 days idle).
+  const { error } = await getAuth().signIn.email({ ...parsed.data, rememberMe: true });
   if (error) {
     if (error.code === "EMAIL_NOT_VERIFIED") {
       return fail("Please verify your email first. Check your inbox for the message we sent.", undefined, echo);
