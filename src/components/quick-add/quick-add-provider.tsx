@@ -9,10 +9,14 @@ export interface QuickAddState {
   editing: Expense | null;
   /** Changes on every open so the form starts fresh. */
   session: number;
+  /** A past day to log a forgotten expense on (opened from a past month or day); null = today. */
+  presetDay: string | null;
 }
 
 interface QuickAddApi {
   openNew(): void;
+  /** Add an expense on a particular (past) day, e.g. one the person forgot to log. */
+  openNewOn(day: string): void;
   openEdit(expense: Expense): void;
   close(): void;
   state: QuickAddState;
@@ -27,11 +31,15 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 /** Lets any button open quick add (new or edit). Press N anywhere (outside a text field) to add. */
 export function QuickAddProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<QuickAddState>({ open: false, editing: null, session: 0 });
+  const [state, setState] = useState<QuickAddState>({ open: false, editing: null, session: 0, presetDay: null });
 
-  const openNew = useCallback(() => setState((s) => ({ open: true, editing: null, session: s.session + 1 })), []);
+  const openNew = useCallback(() => setState((s) => ({ open: true, editing: null, session: s.session + 1, presetDay: null })), []);
+  const openNewOn = useCallback(
+    (day: string) => setState((s) => ({ open: true, editing: null, session: s.session + 1, presetDay: day })),
+    [],
+  );
   const openEdit = useCallback(
-    (expense: Expense) => setState((s) => ({ open: true, editing: expense, session: s.session + 1 })),
+    (expense: Expense) => setState((s) => ({ open: true, editing: expense, session: s.session + 1, presetDay: null })),
     [],
   );
   const close = useCallback(() => setState((s) => ({ ...s, open: false })), []);
@@ -47,7 +55,7 @@ export function QuickAddProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [openNew]);
 
-  const value = useMemo(() => ({ openNew, openEdit, close, state }), [openNew, openEdit, close, state]);
+  const value = useMemo(() => ({ openNew, openNewOn, openEdit, close, state }), [openNew, openNewOn, openEdit, close, state]);
   return <QuickAddContext value={value}>{children}</QuickAddContext>;
 }
 

@@ -123,4 +123,6 @@ export interface BudgetStatus {
   state: BudgetState;
   period_start: string;
   period_end: string;
+  /** The budget's usual amount; `amount` is this period's own amount when one was set. */
+  default_amount: number;
 }

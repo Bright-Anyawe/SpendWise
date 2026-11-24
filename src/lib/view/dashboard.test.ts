@@ -16,6 +16,7 @@ function budget(overrides: Partial<BudgetStatus>): BudgetStatus {
     state: "ok",
     period_start: "2026-11-01",
     period_end: "2026-11-30",
+    default_amount: 3000,
     ...overrides,
   };
 }

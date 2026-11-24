@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BudgetStatus } from "@/lib/types/database";
-import { paceNote, sortBudgets } from "./budgets";
+import { budgetMonthView, paceNote, sortBudgets } from "./budgets";
 
 function budget(overrides: Partial<BudgetStatus>): BudgetStatus {
   return {
@@ -16,6 +16,7 @@ function budget(overrides: Partial<BudgetStatus>): BudgetStatus {
     state: "ok",
     period_start: "2026-11-01",
     period_end: "2026-11-30",
+    default_amount: 3000,
     ...overrides,
   };
 }
@@ -49,5 +50,37 @@ describe("paceNote", () => {
 
   it("stays quiet when already over (the status says so)", () => {
     expect(paceNote(budget({ used_percent: 105, state: "over" }), "2026-11-19")).toBeNull();
+  });
+});
+
+describe("budgetMonthView", () => {
+  const today = "2026-11-24";
+
+  it("shows the current month by default, up to today", () => {
+    expect(budgetMonthView(undefined, today)).toEqual({
+      start: "2026-11-01",
+      day: "2026-11-24",
+      isCurrent: true,
+      label: "November 2026",
+      prevRef: "2026-10-01",
+      nextRef: null,
+    });
+  });
+
+  it("opens a past month on its last day, with a way back", () => {
+    expect(budgetMonthView("2026-10-07", today)).toEqual({
+      start: "2026-10-01",
+      day: "2026-10-31",
+      isCurrent: false,
+      label: "October 2026",
+      prevRef: "2026-09-01",
+      nextRef: "2026-11-01",
+    });
+    expect(budgetMonthView("2026-02-10", today).day).toBe("2026-02-28");
+  });
+
+  it("never goes past the current month, and ignores nonsense", () => {
+    expect(budgetMonthView("2027-01-01", today).start).toBe("2026-11-01");
+    expect(budgetMonthView("not-a-date", today).start).toBe("2026-11-01");
   });
 });

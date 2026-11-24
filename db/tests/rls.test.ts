@@ -13,6 +13,7 @@ const OWNED_TABLES = [
   "categories",
   "expenses",
   "budgets",
+  "budget_amounts",
   "no_spend_days",
   "notification_preferences",
   "push_subscriptions",
@@ -31,7 +32,14 @@ beforeAll(async () => {
     [alice, aliceFood],
   );
   aliceExpense = rows[0].id;
-  await db.pg.query("insert into public.budgets (user_id, period, amount) values ($1, 'monthly', 3000)", [alice]);
+  const budget = await db.pg.query<{ id: string }>(
+    "insert into public.budgets (user_id, period, amount) values ($1, 'monthly', 3000) returning id",
+    [alice],
+  );
+  await db.pg.query(
+    "insert into public.budget_amounts (budget_id, user_id, period_start, amount) values ($1, $2, '2026-10-01', 2500)",
+    [budget.rows[0].id, alice],
+  );
   await db.pg.query("insert into public.no_spend_days (user_id, day) values ($1, '2026-11-18')", [alice]);
   await db.pg.query(
     "insert into public.push_subscriptions (user_id, endpoint, p256dh, auth) values ($1, 'https://push.example.com/a', 'k', 'a')",

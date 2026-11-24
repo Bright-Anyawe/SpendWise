@@ -31,12 +31,61 @@ export function updateBudget(
   ]);
 }
 
+export interface BudgetAmount {
+  budget_id: string;
+  period_start: string;
+  amount: number;
+}
+
+// The period (month, week or day) of budget $1 that contains date $2 (null: today), computed by the database.
+const PERIOD_OF = `
+  with target as (
+    select b.id, pb.start_date
+      from public.budgets b
+      cross join lateral public.period_bounds(
+        case b.period when 'daily' then 'day' when 'weekly' then 'week' else 'month' end,
+        coalesce($2::date, public.local_today())
+      ) pb
+     where b.id = $1
+  )`;
+
 /**
- * For income that arrives in parts: raises a budget by `amount` (added in the database, so two quick
- * additions can't overwrite each other). Null when the budget isn't the person's or doesn't exist.
+ * Sets the amount for one period of a budget (the month, week or day containing `day`), e.g. a past
+ * month someone forgot to set. Other periods are unchanged. Null when the budget isn't the person's.
  */
-export function addToBudget(db: Queryable, id: string, amount: string): Promise<Budget | null> {
-  return one<Budget>(db, "update public.budgets set amount = amount + $2::numeric where id = $1 returning *", [id, amount]);
+export function setBudgetAmount(db: Queryable, id: string, day: string | null, amount: string): Promise<BudgetAmount | null> {
+  return one<BudgetAmount>(
+    db,
+    `${PERIOD_OF}
+     insert into public.budget_amounts (budget_id, period_start, amount)
+     select t.id, t.start_date, $3::numeric from target t
+     on conflict (budget_id, period_start) do update set amount = excluded.amount
+     returning budget_id, period_start, amount`,
+    [id, day, amount],
+  );
+}
+
+/**
+ * For income that arrives in parts: raises the budget for the period containing `day` by `amount`,
+ * starting from that period's current amount. Added in the database, so two quick additions can't
+ * overwrite each other. Null when the budget isn't the person's or doesn't exist.
+ */
+export function addToBudget(db: Queryable, id: string, amount: string, day: string | null): Promise<BudgetAmount | null> {
+  return one<BudgetAmount>(
+    db,
+    `${PERIOD_OF}
+     insert into public.budget_amounts (budget_id, period_start, amount)
+     select t.id, t.start_date, b.amount + $3::numeric
+       from target t join public.budgets b on b.id = t.id
+     on conflict (budget_id, period_start) do update set amount = public.budget_amounts.amount + $3::numeric
+     returning budget_id, period_start, amount`,
+    [id, day, amount],
+  );
+}
+
+/** The alert point applies to every period of the budget. */
+export function setBudgetAlert(db: Queryable, id: string, alertAtPercent: number): Promise<Budget | null> {
+  return one<Budget>(db, "update public.budgets set alert_at_percent = $2 where id = $1 returning *", [id, alertAtPercent]);
 }
 
 export async function deleteBudget(db: Queryable, id: string): Promise<boolean> {

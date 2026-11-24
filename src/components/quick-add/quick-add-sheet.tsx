@@ -26,6 +26,7 @@ export function QuickAddSheet(props: QuickAddSheetProps) {
     <QuickAddForm
       key={state.session}
       editing={state.editing}
+      presetDay={state.presetDay}
       useKeypad={!isDesktop}
       onDone={close}
       {...props}

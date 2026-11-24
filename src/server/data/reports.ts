@@ -76,7 +76,8 @@ export async function reportData(db: Queryable, period: ReportPeriod, ref: strin
     days: days.rows,
     categories: categories.rows,
     previousCategories: previousCategories.rows,
-    budgets: isCurrent ? await budgetStatus(db, today) : [],
+    // Past periods show that period's own budget amounts.
+    budgets: await budgetStatus(db, upTo),
     loggedDays: logged?.n ?? 0,
   };
 }

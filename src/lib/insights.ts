@@ -84,6 +84,19 @@ export function buildInsights(r: ReportData, money: (n: number) => string): Insi
       const name = b.category_name ?? `Your overall`;
       out.push({ id: `over-${b.budget_id}`, text: `${name} is ${money(-b.remaining)} over its ${b.period} budget.` });
     }
+  } else {
+    // A past period, against that period's own budget (each month can have a different amount).
+    const periodName = r.period === "month" ? "monthly" : "weekly";
+    const overall = r.budgets.find((b) => b.category_id === null && b.period === periodName && b.period_start === r.start);
+    if (overall) {
+      out.push({
+        id: "budget-past",
+        text:
+          overall.remaining < 0
+            ? `You went ${money(-overall.remaining)} over your ${periodName} budget of ${money(overall.amount)}.`
+            : `You stayed within your ${periodName} budget of ${money(overall.amount)}, with ${money(overall.remaining)} left.`,
+      });
+    }
   }
 
   // 5. Savings

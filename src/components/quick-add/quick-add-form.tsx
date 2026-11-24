@@ -1,11 +1,11 @@
 "use client";
 
-import { CalendarDays, Check, ChevronDown, Trash2 } from "lucide-react";
-import { useId, useState, useTransition } from "react";
+import { CalendarDays, Check, ChevronDown, Clock, Trash2 } from "lucide-react";
+import { useId, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { CategoryIcon } from "@/components/icons/category-icon";
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "@/config/payment-methods";
-import { dayLabel, formatTime, todayInTimeZone } from "@/lib/dates";
+import { addDays, dayLabel, formatTime, todayInTimeZone } from "@/lib/dates";
 import { applyKey } from "@/lib/keypad";
 import { formatMoney, parseAmount } from "@/lib/money";
 import { offlineQueue, QUEUE_CHANGED, requestBackgroundSync } from "@/lib/offline/idb-store";
@@ -19,6 +19,8 @@ import { Keypad } from "./keypad";
 
 export interface QuickAddFormProps {
   editing: Expense | null;
+  /** Start a new expense on this (past) day, e.g. one the person forgot to log. */
+  presetDay?: string | null;
   categories: CategoryWithUses[];
   currency: string;
   timezone: string;
@@ -30,18 +32,23 @@ export interface QuickAddFormProps {
 
 const VISIBLE_CATEGORIES = 7;
 
+const chipClass =
+  "flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-input bg-card px-3 text-[13px] font-medium has-[:checked]:border-primary has-[:checked]:bg-secondary has-[:checked]:font-semibold has-[:checked]:text-primary has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50";
+
 function initialAmount(expense: Expense | null): string {
   if (!expense) return "";
   return expense.amount.toFixed(2).replace(/\.00$/, "");
 }
 
-export function QuickAddForm({ editing, categories, currency, timezone, lastPaymentMethod, useKeypad, onDone }: QuickAddFormProps) {
+export function QuickAddForm({ editing, presetDay, categories, currency, timezone, lastPaymentMethod, useKeypad, onDone }: QuickAddFormProps) {
   const ids = useId();
   const [defaults] = useState(() => quickAddDefaults(timezone, lastPaymentMethod));
   const [amount, setAmount] = useState(initialAmount(editing));
   const [categoryId, setCategoryId] = useState(editing?.category_id ?? categories[0]?.id ?? "");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(editing?.payment_method ?? defaults.paymentMethod);
-  const [spentOn, setSpentOn] = useState(editing?.spent_on ?? defaults.spentOn);
+  const [spentOn, setSpentOn] = useState(editing?.spent_on ?? (presetDay && presetDay <= defaults.spentOn ? presetDay : defaults.spentOn));
+  const [pickEarlier, setPickEarlier] = useState(false);
+  const dateInput = useRef<HTMLInputElement>(null);
   const [spentTime, setSpentTime] = useState((editing?.spent_time ?? defaults.spentTime).slice(0, 5));
   const [note, setNote] = useState(editing?.note ?? "");
   const [showDetails, setShowDetails] = useState(Boolean(editing?.note));
@@ -53,6 +60,9 @@ export function QuickAddForm({ editing, categories, currency, timezone, lastPaym
   const parsed = parseAmount(amount);
   const category = categories.find((c) => c.id === categoryId);
   const today = todayInTimeZone(timezone);
+  const yesterday = addDays(today, -1);
+  // "Earlier…" stays selected while picking, even if the chosen date happens to be yesterday.
+  const whenChoice = !pickEarlier && spentOn === today ? "today" : !pickEarlier && spentOn === yesterday ? "yesterday" : "earlier";
   const shownCategories = showAllCategories ? categories : categories.slice(0, VISIBLE_CATEGORIES);
 
   function save() {
@@ -264,33 +274,87 @@ export function QuickAddForm({ editing, categories, currency, timezone, lastPaym
         </div>
       </fieldset>
 
+      {/* When: forgotten expenses can go on any earlier day (never a future one). */}
+      <fieldset>
+        <legend className="mb-2 text-[13px] font-medium text-muted-foreground">When</legend>
+        <div className="flex flex-wrap items-center gap-2">
+          {(
+            [
+              ["today", "Today"],
+              ["yesterday", "Yesterday"],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value} className={chipClass}>
+              <input
+                type="radio"
+                name={`${ids}-when`}
+                value={value}
+                checked={whenChoice === value}
+                onChange={() => {
+                  setPickEarlier(false);
+                  setSpentOn(value === "today" ? today : yesterday);
+                }}
+                className="sr-only"
+              />
+              {label}
+            </label>
+          ))}
+          <label className={chipClass}>
+            <input
+              type="radio"
+              name={`${ids}-when`}
+              value="earlier"
+              checked={whenChoice === "earlier"}
+              onChange={() => {
+                setPickEarlier(true);
+                if (spentOn >= yesterday) setSpentOn(addDays(today, -2));
+                // Open the calendar straight away where the browser supports it.
+                requestAnimationFrame(() => {
+                  try {
+                    dateInput.current?.showPicker?.();
+                  } catch {
+                    dateInput.current?.focus();
+                  }
+                });
+              }}
+              className="sr-only"
+            />
+            <CalendarDays aria-hidden="true" className="size-4" />
+            {whenChoice === "earlier" ? dayLabel(spentOn, today) : "Earlier…"}
+          </label>
+        </div>
+        {whenChoice === "earlier" ? (
+          <div className="mt-2 flex flex-col gap-1.5">
+            <label htmlFor={`${ids}-date`} className="text-[13px] font-medium text-muted-foreground">
+              Date
+            </label>
+            <input
+              ref={dateInput}
+              id={`${ids}-date`}
+              type="date"
+              value={spentOn}
+              max={today}
+              onChange={(e) => e.target.value && e.target.value <= today && setSpentOn(e.target.value)}
+              className="h-11 rounded-md border border-input bg-card px-3 text-base"
+            />
+          </div>
+        ) : null}
+      </fieldset>
+
       <button
         type="button"
         onClick={() => setShowDetails((v) => !v)}
         aria-expanded={showDetails}
         className="flex h-11 items-center gap-2 self-start rounded-full border border-input px-3.5 text-[13px] font-medium"
       >
-        <CalendarDays aria-hidden="true" className="size-4" />
-        {dayLabel(spentOn, today)}, {formatTime(spentTime)}
+        <Clock aria-hidden="true" className="size-4" />
+        {formatTime(spentTime)}
         {note.trim() ? " · note" : " · add note"}
         <ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", showDetails && "rotate-180")} />
       </button>
 
       {showDetails ? (
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor={`${ids}-date`} className="text-[13px] font-medium text-muted-foreground">
-              Date
-            </label>
-            <input
-              id={`${ids}-date`}
-              type="date"
-              value={spentOn}
-              max="2100-12-31"
-              onChange={(e) => e.target.value && setSpentOn(e.target.value)}
-              className="h-11 rounded-md border border-input bg-card px-3 text-base"
-            />
-          </div>
           <div className="flex flex-col gap-1.5">
             <label htmlFor={`${ids}-time`} className="text-[13px] font-medium text-muted-foreground">
               Time

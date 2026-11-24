@@ -6,6 +6,7 @@ import { ChartLegend, SpendBarChart } from "@/components/charts/spend-bar-chart"
 import { Comparison } from "@/components/common/comparison";
 import { SectionCard } from "@/components/common/section-card";
 import { CategoryBars } from "@/components/expenses/category-bars";
+import { AddOnDayButton } from "@/components/quick-add/add-on-day-button";
 import { buildInsights } from "@/lib/insights";
 import { dayLabel, isIsoDate, todayInTimeZone } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
@@ -100,6 +101,11 @@ async function Reports({ searchParams }: { searchParams: PageProps<"/reports">["
           )}
         </div>
       </div>
+
+      {r.isCurrent ? null : (
+        // Looking back at a past period: log anything that was forgotten (quick add opens on its last day).
+        <AddOnDayButton day={r.end}>Add a forgotten expense in {period === "month" ? monthName(r.start) : "this week"}</AddOnDayButton>
+      )}
 
       <section className="flex flex-col gap-2 rounded-xl border border-border bg-card p-5">
         <h2 className="text-[13px] font-medium text-muted-foreground">{scope}</h2>

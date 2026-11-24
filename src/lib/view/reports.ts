@@ -11,7 +11,7 @@ function shortRange(start: string, end: string): string {
   return sm === em ? `${sd}–${ed} ${MONTHS_SHORT[sm - 1]}` : `${sd} ${MONTHS_SHORT[sm - 1]} – ${ed} ${MONTHS_SHORT[em - 1]}`;
 }
 
-function shiftMonth(firstOfMonth: string, months: number): string {
+export function shiftMonth(firstOfMonth: string, months: number): string {
   const [y, m] = firstOfMonth.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1 + months, 1)).toISOString().slice(0, 10);
 }

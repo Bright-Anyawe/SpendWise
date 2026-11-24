@@ -15,6 +15,23 @@ const PERIOD_LABEL: Record<BudgetPeriod, string> = { monthly: "Monthly", weekly:
 
 type Editing = { mode: "new"; period: BudgetPeriod; categoryId: string | null } | { mode: "edit"; budget: BudgetStatus };
 
+/** The month the Budgets page is showing: amounts are saved for this month (or its week/day). */
+export interface BudgetView {
+  /** Today in the current month; the month's last day for a past month. */
+  day: string;
+  isCurrent: boolean;
+  /** e.g. "October 2026" */
+  label: string;
+}
+
+/** "October 2026", "this week", "today": the period a budget's amount is being set for. */
+function periodName(period: BudgetPeriod, view: BudgetView): string {
+  if (period === "monthly") return view.label;
+  return period === "weekly" ? "this week" : "today";
+}
+
+const OTHER_PERIODS: Record<BudgetPeriod, string> = { monthly: "Months", weekly: "Weeks", daily: "Days" };
+
 export function BudgetManager({
   title,
   intro,
@@ -22,6 +39,7 @@ export function BudgetManager({
   categories,
   allCategories,
   currency,
+  view,
 }: {
   /** Page heading block, shown left of the Add button. */
   title: ReactNode;
@@ -31,6 +49,7 @@ export function BudgetManager({
   categories: BudgetStatus[];
   allCategories: Category[];
   currency: string;
+  view: BudgetView;
 }) {
   const [editing, setEditing] = useState<Editing | null>(null);
   const icons = new Map(allCategories.map((c) => [c.id, c.icon]));
@@ -53,9 +72,13 @@ export function BudgetManager({
 
       {overall.length === 0 && categories.length === 0 ? (
         <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-primary/40 bg-secondary p-5">
-          <h2 className="text-[17px] font-semibold text-secondary-foreground">Start with a monthly budget</h2>
+          <h2 className="text-[17px] font-semibold text-secondary-foreground">
+            {view.isCurrent ? "Start with a monthly budget" : `Set a budget for ${view.label}`}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Pick an amount for the month. You’ll see what’s left, a daily allowance, and a heads-up at 80%.
+            {view.isCurrent
+              ? "Pick an amount for the month. You’ll see what’s left, a daily allowance, and a heads-up at 80%."
+              : `Pick what you had to spend in ${view.label}. Other months keep their own amounts.`}
           </p>
           <button
             type="button"
@@ -68,7 +91,7 @@ export function BudgetManager({
       ) : null}
 
       {overall.length > 0 ? (
-        <BudgetGroup title="Overall" rows={overall} currency={currency} onEdit={(b) => setEditing({ mode: "edit", budget: b })} />
+        <BudgetGroup title="Overall" rows={overall} currency={currency} view={view} onEdit={(b) => setEditing({ mode: "edit", budget: b })} />
       ) : null}
 
       {categories.length > 0 ? (
@@ -76,6 +99,7 @@ export function BudgetManager({
           title="Categories"
           rows={categories}
           currency={currency}
+          view={view}
           icons={icons}
           onEdit={(b) => setEditing({ mode: "edit", budget: b })}
         />
@@ -98,7 +122,7 @@ export function BudgetManager({
         title={editing?.mode === "edit" ? "Edit budget" : "New budget"}
       >
         {editing ? (
-          <BudgetForm editing={editing} categories={allCategories} currency={currency} onDone={() => setEditing(null)} />
+          <BudgetForm editing={editing} categories={allCategories} currency={currency} view={view} onDone={() => setEditing(null)} />
         ) : null}
       </ResponsiveSheet>
     </>
@@ -109,12 +133,14 @@ function BudgetGroup({
   title,
   rows,
   currency,
+  view,
   icons,
   onEdit,
 }: {
   title: string;
   rows: BudgetStatus[];
   currency: string;
+  view: BudgetView;
   icons?: Map<string, string>;
   onEdit: (b: BudgetStatus) => void;
 }) {
@@ -156,8 +182,13 @@ function BudgetGroup({
                 <span className="flex w-full justify-between gap-2 text-[13px] text-muted-foreground tabular-nums">
                   <span>
                     {money(b.spent)} of {money(b.amount)}
+                    {b.amount !== b.default_amount ? (
+                      <span className="block text-xs">
+                        Set for {periodName(b.period, view)} · usual {money(b.default_amount)}
+                      </span>
+                    ) : null}
                   </span>
-                  <strong className={cn("font-semibold", b.state === "over" ? "text-destructive" : b.state === "warning" ? "text-warning" : "text-foreground")}>
+                  <strong className={cn("shrink-0 font-semibold whitespace-nowrap", b.state === "over" ? "text-destructive" : b.state === "warning" ? "text-warning" : "text-foreground")}>
                     {b.remaining >= 0 ? `${money(b.remaining)} left` : `${money(-b.remaining)} over`}
                   </strong>
                 </span>
@@ -174,22 +205,28 @@ function BudgetForm({
   editing,
   categories,
   currency,
+  view,
   onDone,
 }: {
   editing: Editing;
   categories: Category[];
   currency: string;
+  view: BudgetView;
   onDone: () => void;
 }) {
   const ids = useId();
   const existing = editing.mode === "edit" ? editing.budget : null;
-  const [period, setPeriod] = useState<BudgetPeriod>(existing?.period ?? (editing.mode === "new" ? editing.period : "monthly"));
+  // A past month only takes monthly budgets (weekly and daily ones are set on the current month).
+  const [period, setPeriod] = useState<BudgetPeriod>(existing?.period ?? (editing.mode === "new" && view.isCurrent ? editing.period : "monthly"));
   const [categoryId, setCategoryId] = useState<string>(existing?.category_id ?? (editing.mode === "new" ? (editing.categoryId ?? "") : ""));
   const [amount, setAmount] = useState(existing ? String(existing.amount) : "");
   const [alertAt, setAlertAt] = useState(existing?.alert_at_percent ?? 80);
   // Editing starts on "Money came in": income often arrives in parts through the month.
   const [mode, setMode] = useState<"add" | "set">(existing ? "add" : "set");
   const [added, setAdded] = useState("");
+  // Changing this month's total usually means "from now on"; fixing a past month usually doesn't.
+  const [makeUsual, setMakeUsual] = useState(view.isCurrent);
+  const when = periodName(existing?.period ?? period, view);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -204,12 +241,12 @@ function BudgetForm({
     }
     setError(null);
     startTransition(async () => {
-      const result = await addToBudget(existing.budget_id, addedAmount);
+      const result = await addToBudget(existing.budget_id, addedAmount, view.day);
       if (!result.ok) {
         setError(result.error);
         return;
       }
-      toast(`Added ${formatMoney(Number(addedAmount), currency)}. Budget is now ${formatMoney(result.data.amount, currency)}.`);
+      toast(`Added ${formatMoney(Number(addedAmount), currency)}. Budget for ${when} is now ${formatMoney(result.data.amount, currency)}.`);
       onDone();
     });
   }
@@ -225,12 +262,15 @@ function BudgetForm({
     }
     setError(null);
     startTransition(async () => {
-      const result = await saveBudget({ period, categoryId: categoryId || null, amount, alertAtPercent: alertAt }, existing?.budget_id);
+      const result = await saveBudget({ period, categoryId: categoryId || null, amount, alertAtPercent: alertAt }, existing?.budget_id, {
+        day: view.day,
+        makeUsual,
+      });
       if (!result.ok) {
         setError(result.error);
         return;
       }
-      toast(existing ? "Budget updated" : "Budget added");
+      toast(existing ? `Budget for ${when} updated` : "Budget added");
       onDone();
     });
   }
@@ -307,8 +347,8 @@ function BudgetForm({
             </span>
             <span id={`${ids}-added-hint`} aria-live="polite" className="text-[13px] font-normal text-muted-foreground tabular-nums">
               {addedAmount
-                ? `Budget goes from ${formatMoney(existing.amount, currency)} to ${formatMoney(existing.amount + Number(addedAmount), currency)}.`
-                : `Now ${formatMoney(existing.amount, currency)}. Add each part of your income as it arrives.`}
+                ? `Budget for ${when} goes from ${formatMoney(existing.amount, currency)} to ${formatMoney(existing.amount + Number(addedAmount), currency)}.`
+                : `${formatMoney(existing.amount, currency)} for ${when}. Add each part of your income as it arrives.`}
             </span>
           </label>
 
@@ -327,7 +367,7 @@ function BudgetForm({
           <div className="grid grid-cols-2 gap-3">
             <label htmlFor={`${ids}-period`} className="flex flex-col gap-1.5 text-sm font-semibold">
               Period
-              <select id={`${ids}-period`} value={period} disabled={Boolean(existing)} onChange={(e) => setPeriod(e.target.value as BudgetPeriod)} className={selectClass}>
+              <select id={`${ids}-period`} value={period} disabled={Boolean(existing) || !view.isCurrent} onChange={(e) => setPeriod(e.target.value as BudgetPeriod)} className={selectClass}>
                 <option value="monthly">Monthly</option>
                 <option value="weekly">Weekly</option>
                 <option value="daily">Daily</option>
@@ -346,9 +386,9 @@ function BudgetForm({
             </label>
           </div>
           {existing ? <p className="-mt-2 text-xs text-muted-foreground">To change the period or category, delete this budget and add a new one.</p> : null}
-    
+
           <label htmlFor={`${ids}-amount`} className="flex flex-col gap-1.5 text-sm font-semibold">
-            Amount
+            {existing ? `Amount for ${when}` : "Amount"}
             <span className="flex h-[52px] overflow-hidden rounded-md border border-input bg-card focus-within:ring-3 focus-within:ring-ring/50">
               <span className="flex items-center border-r border-input bg-muted px-3.5 text-[15px] font-semibold text-muted-foreground">{currency}</span>
               <input
@@ -362,7 +402,31 @@ function BudgetForm({
               />
             </span>
           </label>
-    
+
+          {existing ? (
+            <label className="-mt-2 flex items-start gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={makeUsual}
+                onChange={(e) => setMakeUsual(e.target.checked)}
+                className="mt-0.5 size-5 shrink-0 accent-[var(--primary)]"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="font-semibold">Make this my usual amount</span>
+                <span className="text-xs text-muted-foreground">
+                  {OTHER_PERIODS[existing.period]} you haven’t set use your usual amount (now {formatMoney(existing.default_amount, currency)}).
+                  Ones you’ve set keep theirs.
+                </span>
+              </span>
+            </label>
+          ) : (
+            <p className="-mt-2 text-xs text-muted-foreground">
+              {view.isCurrent
+                ? "Used for every month until you set a month’s own amount."
+                : `Kept for ${view.label}, and used for any month you haven’t set.`}
+            </p>
+          )}
+
           <label htmlFor={`${ids}-alert`} className="flex flex-col gap-1.5 text-sm font-semibold">
             Warn me at
             <select id={`${ids}-alert`} value={alertAt} onChange={(e) => setAlertAt(Number(e.target.value))} className={selectClass}>
@@ -376,13 +440,13 @@ function BudgetForm({
               The bar shows a mark here, and you get a notification when you reach it (if budget alerts are on in Settings).
             </span>
           </label>
-    
+
           {error ? (
             <p role="alert" className="rounded-md bg-danger-bg px-4 py-3 text-sm text-destructive">
               {error}
             </p>
           ) : null}
-    
+
           <button type="submit" disabled={pending} className="h-[52px] rounded-[14px] bg-primary text-base font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-60">
             {pending ? "Saving…" : existing ? "Save budget" : "Add budget"}
           </button>
