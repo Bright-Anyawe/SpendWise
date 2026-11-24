@@ -221,6 +221,20 @@ describe("checkBudgetAlerts", () => {
     expect(d.send).toHaveBeenCalledTimes(2);
   });
 
+  it("warns again after the budget is raised and spending catches up", async () => {
+    const d = deps();
+    await spend(ama, food, "170.00", "2026-11-10"); // 85% of 200
+    expect(await checkBudgetAlerts(ama, now, d)).toEqual({ created: 1, pushed: 1 });
+
+    // More money came in: the budget goes up to 400, so 170 is back to "ok".
+    await db.pg.query("update public.budgets set amount = 400 where user_id = $1", [ama]);
+    expect(await checkBudgetAlerts(ama, now, d)).toEqual({ created: 0, pushed: 0 });
+
+    await spend(ama, food, "160.00", "2026-11-21"); // 330 of 400 = 82.5%
+    expect(await checkBudgetAlerts(ama, now, d)).toEqual({ created: 1, pushed: 1 });
+    expect((await notifications(ama)).map((n) => n.title)).toEqual(["Food & Groceries is at 85%", "Food & Groceries is at 82%"]);
+  });
+
   it("does nothing when budget alerts are off", async () => {
     await prefs(ama, "budget_alerts_enabled = false");
     await spend(ama, food, "250.00", "2026-11-10");

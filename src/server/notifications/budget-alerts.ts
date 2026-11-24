@@ -11,11 +11,13 @@ interface BudgetRow {
   used_percent: number;
   state: "ok" | "warning" | "over";
   period_start: string;
+  amount: number;
 }
 
 /**
  * After an expense is saved: a warning when a budget reaches its alert point, and an alert when it
- * goes over — each once per budget per period, and only if budget alerts are on.
+ * goes over — each once per budget per period and amount, and only if budget alerts are on.
+ * Raising a budget (income that arrives in parts) starts its alerts over for the new amount.
  * Going straight past the limit sends only the "over budget" alert.
  */
 export async function checkBudgetAlerts(userId: string, now: Date, deps: NotifyDeps): Promise<{ created: number; pushed: number }> {
@@ -31,7 +33,7 @@ export async function checkBudgetAlerts(userId: string, now: Date, deps: NotifyD
 
     await actAs(db, userId);
     const { rows } = await db.query<BudgetRow>(
-      "select budget_id, period, category_name, remaining, used_percent, state, period_start from public.budget_status($1::date)",
+      "select budget_id, period, category_name, remaining, used_percent, state, period_start, amount from public.budget_status($1::date)",
       [todayInTimeZone(person.timezone, now)],
     );
 
@@ -46,10 +48,12 @@ export async function checkBudgetAlerts(userId: string, now: Date, deps: NotifyD
         periodStart: b.period_start,
         currency: person.currency,
       };
+      // The amount is part of the key, so a raised (or lowered) budget gets its own alerts.
+      const scope = `${b.budget_id}:${b.period_start}:${Number(b.amount).toFixed(2)}`;
       planned.push(
         b.state === "over"
-          ? { kind: "budget_exceeded", dedupeKey: `budget_exceeded:${b.budget_id}:${b.period_start}`, copy: budgetExceededCopy(facts) }
-          : { kind: "budget_warning", dedupeKey: `budget_warning:${b.budget_id}:${b.period_start}`, copy: budgetWarningCopy(facts) },
+          ? { kind: "budget_exceeded", dedupeKey: `budget_exceeded:${scope}`, copy: budgetExceededCopy(facts) }
+          : { kind: "budget_warning", dedupeKey: `budget_warning:${scope}`, copy: budgetWarningCopy(facts) },
       );
     }
     if (planned.length === 0) return [];

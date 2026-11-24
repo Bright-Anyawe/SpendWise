@@ -31,6 +31,14 @@ export function updateBudget(
   ]);
 }
 
+/**
+ * For income that arrives in parts: raises a budget by `amount` (added in the database, so two quick
+ * additions can't overwrite each other). Null when the budget isn't the person's or doesn't exist.
+ */
+export function addToBudget(db: Queryable, id: string, amount: string): Promise<Budget | null> {
+  return one<Budget>(db, "update public.budgets set amount = amount + $2::numeric where id = $1 returning *", [id, amount]);
+}
+
 export async function deleteBudget(db: Queryable, id: string): Promise<boolean> {
   const { rows } = await db.query("delete from public.budgets where id = $1 returning id", [id]);
   return rows.length > 0;

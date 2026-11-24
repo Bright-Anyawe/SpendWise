@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { type ReactNode, useId, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { BudgetBar, BudgetStatusPill } from "@/components/common/budget-progress";
@@ -9,7 +9,7 @@ import { CategoryTile } from "@/components/icons/category-icon";
 import { formatMoney, parseAmount } from "@/lib/money";
 import type { BudgetPeriod, BudgetStatus, Category } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
-import { deleteBudget, saveBudget } from "@/server/actions/budgets";
+import { addToBudget, deleteBudget, saveBudget } from "@/server/actions/budgets";
 
 const PERIOD_LABEL: Record<BudgetPeriod, string> = { monthly: "Monthly", weekly: "Weekly", daily: "Daily" };
 
@@ -142,7 +142,10 @@ function BudgetGroup({
                       <span className="font-normal text-muted-foreground">{periodNote}</span>
                     </span>
                   </span>
-                  <BudgetStatusPill state={b.state} />
+                  <span className="flex shrink-0 items-center gap-2">
+                    <BudgetStatusPill state={b.state} />
+                    <Pencil aria-hidden="true" className="size-4 text-muted-foreground" />
+                  </span>
                 </span>
                 <BudgetBar
                   state={b.state}
@@ -184,12 +187,38 @@ function BudgetForm({
   const [categoryId, setCategoryId] = useState<string>(existing?.category_id ?? (editing.mode === "new" ? (editing.categoryId ?? "") : ""));
   const [amount, setAmount] = useState(existing ? String(existing.amount) : "");
   const [alertAt, setAlertAt] = useState(existing?.alert_at_percent ?? 80);
+  // Editing starts on "Money came in": income often arrives in parts through the month.
+  const [mode, setMode] = useState<"add" | "set">(existing ? "add" : "set");
+  const [added, setAdded] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const selectClass = "h-12 rounded-md border border-input bg-card px-3 text-base disabled:bg-muted disabled:text-muted-foreground";
+  const addedAmount = parseAmount(added);
+
+  function submitAdd() {
+    if (!existing) return;
+    if (!addedAmount) {
+      setError("Enter the amount that came in, like 500.");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const result = await addToBudget(existing.budget_id, addedAmount);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      toast(`Added ${formatMoney(Number(addedAmount), currency)}. Budget is now ${formatMoney(result.data.amount, currency)}.`);
+      onDone();
+    });
+  }
 
   function submit() {
+    if (mode === "add") {
+      submitAdd();
+      return;
+    }
     if (!parseAmount(amount)) {
       setError("Enter an amount above 0, like 3,000.");
       return;
@@ -231,71 +260,139 @@ function BudgetForm({
         submit();
       }}
     >
-      <div className="grid grid-cols-2 gap-3">
-        <label htmlFor={`${ids}-period`} className="flex flex-col gap-1.5 text-sm font-semibold">
-          Period
-          <select id={`${ids}-period`} value={period} disabled={Boolean(existing)} onChange={(e) => setPeriod(e.target.value as BudgetPeriod)} className={selectClass}>
-            <option value="monthly">Monthly</option>
-            <option value="weekly">Weekly</option>
-            <option value="daily">Daily</option>
-          </select>
-        </label>
-        <label htmlFor={`${ids}-category`} className="flex flex-col gap-1.5 text-sm font-semibold">
-          For
-          <select id={`${ids}-category`} value={categoryId} disabled={Boolean(existing)} onChange={(e) => setCategoryId(e.target.value)} className={selectClass}>
-            <option value="">All spending</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      {existing ? <p className="-mt-2 text-xs text-muted-foreground">To change the period or category, delete this budget and add a new one.</p> : null}
-
-      <label htmlFor={`${ids}-amount`} className="flex flex-col gap-1.5 text-sm font-semibold">
-        Amount
-        <span className="flex h-[52px] overflow-hidden rounded-md border border-input bg-card focus-within:ring-3 focus-within:ring-ring/50">
-          <span className="flex items-center border-r border-input bg-muted px-3.5 text-[15px] font-semibold text-muted-foreground">{currency}</span>
-          <input
-            id={`${ids}-amount`}
-            inputMode="decimal"
-            value={amount}
-            autoFocus={!existing}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="e.g. 3,000"
-            className="min-w-0 flex-1 bg-transparent px-3.5 text-base font-normal tabular-nums outline-none"
-          />
-        </span>
-      </label>
-
-      <label htmlFor={`${ids}-alert`} className="flex flex-col gap-1.5 text-sm font-semibold">
-        Warn me at
-        <select id={`${ids}-alert`} value={alertAt} onChange={(e) => setAlertAt(Number(e.target.value))} className={selectClass}>
-          {[50, 60, 70, 75, 80, 85, 90, 95, 100].map((p) => (
-            <option key={p} value={p}>
-              {p}% of the budget
-            </option>
-          ))}
-        </select>
-        <span className="text-xs font-normal text-muted-foreground">The bar shows a mark here. Alerts by notification arrive in a later update.</span>
-      </label>
-
-      {error ? (
-        <p role="alert" className="rounded-md bg-danger-bg px-4 py-3 text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-
-      <button type="submit" disabled={pending} className="h-[52px] rounded-[14px] bg-primary text-base font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-60">
-        {pending ? "Saving…" : existing ? "Save budget" : "Add budget"}
-      </button>
       {existing ? (
-        <button type="button" onClick={remove} disabled={pending} className="h-11 rounded-md text-[15px] font-semibold text-destructive hover:bg-danger-bg">
-          {confirmDelete ? "Tap again to delete this budget" : "Delete budget"}
-        </button>
+        <div role="radiogroup" aria-label="What changed?" className="grid grid-cols-2 gap-1 rounded-[12px] bg-muted p-1">
+          {(
+            [
+              ["add", "Money came in"],
+              ["set", "Change total"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={mode === value}
+              onClick={() => {
+                setMode(value);
+                setError(null);
+              }}
+              className={cn(
+                "h-10 rounded-[9px] text-sm font-semibold focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
+                mode === value ? "bg-card text-primary shadow-sm" : "text-muted-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       ) : null}
+
+      {existing && mode === "add" ? (
+        <>
+          <label htmlFor={`${ids}-added`} className="flex flex-col gap-1.5 text-sm font-semibold">
+            Amount that came in
+            <span className="flex h-[52px] overflow-hidden rounded-md border border-input bg-card focus-within:ring-3 focus-within:ring-ring/50">
+              <span className="flex items-center border-r border-input bg-muted px-3.5 text-[15px] font-semibold text-muted-foreground">{currency}</span>
+              <input
+                id={`${ids}-added`}
+                inputMode="decimal"
+                value={added}
+                autoFocus
+                onChange={(e) => setAdded(e.target.value)}
+                placeholder="e.g. 500"
+                aria-describedby={`${ids}-added-hint`}
+                className="min-w-0 flex-1 bg-transparent px-3.5 text-base font-normal tabular-nums outline-none"
+              />
+            </span>
+            <span id={`${ids}-added-hint`} aria-live="polite" className="text-[13px] font-normal text-muted-foreground tabular-nums">
+              {addedAmount
+                ? `Budget goes from ${formatMoney(existing.amount, currency)} to ${formatMoney(existing.amount + Number(addedAmount), currency)}.`
+                : `Now ${formatMoney(existing.amount, currency)}. Add each part of your income as it arrives.`}
+            </span>
+          </label>
+
+          {error ? (
+            <p role="alert" className="rounded-md bg-danger-bg px-4 py-3 text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+
+          <button type="submit" disabled={pending} className="h-[52px] rounded-[14px] bg-primary text-base font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-60">
+            {pending ? "Adding…" : addedAmount ? `Add ${formatMoney(Number(addedAmount), currency)} to budget` : "Add to budget"}
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <label htmlFor={`${ids}-period`} className="flex flex-col gap-1.5 text-sm font-semibold">
+              Period
+              <select id={`${ids}-period`} value={period} disabled={Boolean(existing)} onChange={(e) => setPeriod(e.target.value as BudgetPeriod)} className={selectClass}>
+                <option value="monthly">Monthly</option>
+                <option value="weekly">Weekly</option>
+                <option value="daily">Daily</option>
+              </select>
+            </label>
+            <label htmlFor={`${ids}-category`} className="flex flex-col gap-1.5 text-sm font-semibold">
+              For
+              <select id={`${ids}-category`} value={categoryId} disabled={Boolean(existing)} onChange={(e) => setCategoryId(e.target.value)} className={selectClass}>
+                <option value="">All spending</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {existing ? <p className="-mt-2 text-xs text-muted-foreground">To change the period or category, delete this budget and add a new one.</p> : null}
+    
+          <label htmlFor={`${ids}-amount`} className="flex flex-col gap-1.5 text-sm font-semibold">
+            Amount
+            <span className="flex h-[52px] overflow-hidden rounded-md border border-input bg-card focus-within:ring-3 focus-within:ring-ring/50">
+              <span className="flex items-center border-r border-input bg-muted px-3.5 text-[15px] font-semibold text-muted-foreground">{currency}</span>
+              <input
+                id={`${ids}-amount`}
+                inputMode="decimal"
+                value={amount}
+                autoFocus={!existing}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="e.g. 3,000"
+                className="min-w-0 flex-1 bg-transparent px-3.5 text-base font-normal tabular-nums outline-none"
+              />
+            </span>
+          </label>
+    
+          <label htmlFor={`${ids}-alert`} className="flex flex-col gap-1.5 text-sm font-semibold">
+            Warn me at
+            <select id={`${ids}-alert`} value={alertAt} onChange={(e) => setAlertAt(Number(e.target.value))} className={selectClass}>
+              {[50, 60, 70, 75, 80, 85, 90, 95, 100].map((p) => (
+                <option key={p} value={p}>
+                  {p}% of the budget
+                </option>
+              ))}
+            </select>
+            <span className="text-xs font-normal text-muted-foreground">
+              The bar shows a mark here, and you get a notification when you reach it (if budget alerts are on in Settings).
+            </span>
+          </label>
+    
+          {error ? (
+            <p role="alert" className="rounded-md bg-danger-bg px-4 py-3 text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+    
+          <button type="submit" disabled={pending} className="h-[52px] rounded-[14px] bg-primary text-base font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-60">
+            {pending ? "Saving…" : existing ? "Save budget" : "Add budget"}
+          </button>
+          {existing ? (
+            <button type="button" onClick={remove} disabled={pending} className="h-11 rounded-md text-[15px] font-semibold text-destructive hover:bg-danger-bg">
+              {confirmDelete ? "Tap again to delete this budget" : "Delete budget"}
+            </button>
+          ) : null}
+        </>
+      )}
     </form>
   );
 }
